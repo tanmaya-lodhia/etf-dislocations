@@ -1,0 +1,13 @@
+# Pipeline settings for Milestone 1.
+# Paths are relative to the repository root.
+paths:
+  fixtures: data/fixtures
+  raw: data/raw
+  processed: data/processed
+  panel: data/panel
+
+liquidity:
+  # Rolling window (trading days) for realised volatility and Amihud smoothing.
+  rolling_window: 21
+  # Trading days per year used to annualise realised volatility.
+  annualisation_days: 252

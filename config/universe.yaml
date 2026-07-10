@@ -1,0 +1,20 @@
+# Pre-registered ETF universe (SPEC.md section 2.1).
+# Buckets encode structural arbitrage difficulty; do not edit after estimation begins.
+etfs:
+  - {ticker: SPY, bucket: domestic_equity}
+  - {ticker: IVV, bucket: domestic_equity}
+  - {ticker: QQQ, bucket: domestic_equity}
+  - {ticker: XLF, bucket: sector_equity}
+  - {ticker: XLE, bucket: sector_equity}
+  - {ticker: XLK, bucket: sector_equity}
+  - {ticker: EFA, bucket: international_equity}
+  - {ticker: EEM, bucket: international_equity}
+  - {ticker: VWO, bucket: international_equity}
+  - {ticker: LQD, bucket: ig_credit}
+  - {ticker: AGG, bucket: ig_credit}
+  - {ticker: BND, bucket: ig_credit}
+  - {ticker: HYG, bucket: hy_credit}
+  - {ticker: JNK, bucket: hy_credit}
+  - {ticker: TLT, bucket: rates}
+  - {ticker: IEF, bucket: rates}
+  - {ticker: SHY, bucket: rates}

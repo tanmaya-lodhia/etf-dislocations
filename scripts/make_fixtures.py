@@ -130,6 +130,22 @@ def main() -> int:
     vix = make_vix_frame(rng)
     vix.to_csv(fixtures / "vix.csv", index=False)
     print(f"wrote {fixtures / 'vix.csv'} ({len(vix)} rows)")
+
+    # Event-window file for fixture-mode event studies: the synthetic stress
+    # window expressed in the Tier-1 config schema. Real Tier-1 dates fall
+    # outside the fixture sample, so fixture mode uses this instead.
+    dates = pd.bdate_range(START, periods=N_DAYS)
+    events_yaml = (
+        "# Synthetic event window matching the fixture stress period.\n"
+        "# Fixture data only; never use with real data.\n"
+        "events:\n"
+        f"  - name: synthetic_stress_2024\n"
+        f"    start: {dates[STRESS_START].date()}\n"
+        f"    end: {dates[STRESS_END - 1].date()}\n"
+    )
+    events_path = fixtures / "stress_windows.yaml"
+    events_path.write_text(events_yaml, encoding="utf-8")
+    print(f"wrote {events_path}")
     return 0
 
 

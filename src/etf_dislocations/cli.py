@@ -15,13 +15,18 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import Settings, load_data_sources, load_settings
+import pandas as pd
+
+from .analysis.event_study import run_event_study
+from .config import Settings, load_data_sources, load_settings, repo_root
 from .data.ingest_nav import ingest_nav, load_nav_dir
 from .data.ingest_prices import ingest_prices
 from .data.ingest_vix import ingest_vix, load_vix_csv
 from .data.loaders import load_fixture_prices
 from .logging_utils import setup_logging
 from .panel import build_panel
+from .reporting.figures import plot_event_window
+from .reporting.tables import write_event_study_tables
 from .stress.apply import add_stress_flags
 from .stress.tier1_events import load_tier1_events
 from .stress.tier2_rule import load_tier2_rules
@@ -118,6 +123,44 @@ def _build_panel_command(mode: str, output: Path | None) -> Path:
     return output
 
 
+def _event_study_command(
+    mode: str, events_path: Path | None, output_dir: Path | None
+) -> Path:
+    settings = load_settings()
+
+    panel_path = settings.panel_dir / f"etf_day_panel_{mode}.csv"
+    if not panel_path.is_file():
+        raise SystemExit(
+            f"No panel at {panel_path}; run "
+            f"'etf-dislocations build-panel --mode {mode}' first"
+        )
+    panel = pd.read_csv(panel_path, parse_dates=["date"])
+
+    # Fixture mode defaults to the synthetic event window shipped with the
+    # fixtures; public mode defaults to the pre-registered Tier-1 list.
+    if events_path is None:
+        events_path = (
+            settings.fixtures_dir / "stress_windows.yaml"
+            if mode == "fixture"
+            else repo_root() / "config" / "stress_windows.yaml"
+        )
+    events = load_tier1_events(events_path)
+
+    # Fixture outputs are quarantined from real results (SPEC.md 5.4).
+    if output_dir is None:
+        reports = repo_root() / "reports"
+        output_dir = reports / "fixture_run" if mode == "fixture" else reports
+
+    result = run_event_study(panel, events, settings.event_study)
+    write_event_study_tables(result, output_dir)
+    for event in result.bucket_means["event"].unique():
+        plot_event_window(
+            result.bucket_means, event, output_dir / f"event_{event}.png"
+        )
+    logger.info("Event-study outputs written to %s", output_dir)
+    return output_dir
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="etf-dislocations")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -140,6 +183,20 @@ def main(argv: list[str] | None = None) -> int:
     p_panel.add_argument("--mode", choices=["fixture", "public"], default="fixture")
     p_panel.add_argument("--output", type=Path, default=None, help="Output CSV path")
 
+    p_es = sub.add_parser(
+        "event-study", help="Run the dislocation event study on a built panel"
+    )
+    p_es.add_argument("--mode", choices=["fixture", "public"], default="fixture")
+    p_es.add_argument(
+        "--events",
+        type=Path,
+        default=None,
+        help="Event-window YAML (default: fixture events or Tier-1 config)",
+    )
+    p_es.add_argument(
+        "--output-dir", type=Path, default=None, help="Directory for outputs"
+    )
+
     args = parser.parse_args(argv)
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
 
@@ -147,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         _ingest_command(args.mode, args.tickers)
     elif args.command == "build-panel":
         _build_panel_command(args.mode, args.output)
+    elif args.command == "event-study":
+        _event_study_command(args.mode, args.events, args.output_dir)
     return 0
 
 

@@ -1,0 +1,6 @@
+# Synthetic event window matching the fixture stress period.
+# Fixture data only; never use with real data.
+events:
+  - name: synthetic_stress_2024
+    start: 2024-03-26
+    end: 2024-04-22

@@ -77,12 +77,22 @@ def load_data_sources(path: Path | None = None) -> DataSources:
 
 
 @dataclass(frozen=True)
+class EventStudySettings:
+    pre_days: int
+    post_days: int
+    estimation_days: int
+    min_estimation_days: int
+    band_sigma: float
+
+
+@dataclass(frozen=True)
 class Settings:
     fixtures_dir: Path
     raw_dir: Path
     processed_dir: Path
     panel_dir: Path
     liquidity: LiquiditySettings
+    event_study: EventStudySettings
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -115,6 +125,23 @@ def load_settings(path: Path | None = None) -> Settings:
     if volume_window < 2:
         raise ValueError(f"volume_window must be >= 2, got {volume_window}")
 
+    es = cfg["event_study"]
+    event_study = EventStudySettings(
+        pre_days=int(es["pre_days"]),
+        post_days=int(es["post_days"]),
+        estimation_days=int(es["estimation_days"]),
+        min_estimation_days=int(es["min_estimation_days"]),
+        band_sigma=float(es["band_sigma"]),
+    )
+    if event_study.pre_days < 0 or event_study.post_days < 1:
+        raise ValueError("event window must have pre_days >= 0 and post_days >= 1")
+    if not 2 <= event_study.min_estimation_days <= event_study.estimation_days:
+        raise ValueError(
+            "min_estimation_days must be between 2 and estimation_days"
+        )
+    if event_study.band_sigma <= 0:
+        raise ValueError(f"band_sigma must be > 0, got {event_study.band_sigma}")
+
     return Settings(
         fixtures_dir=_resolve(paths["fixtures"]),
         raw_dir=_resolve(paths["raw"]),
@@ -125,4 +152,5 @@ def load_settings(path: Path | None = None) -> Settings:
             annualisation_days=annualisation_days,
             volume_window=volume_window,
         ),
+        event_study=event_study,
     )

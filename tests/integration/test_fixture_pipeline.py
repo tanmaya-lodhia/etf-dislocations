@@ -101,3 +101,39 @@ def test_full_pipeline_from_fixtures(tmp_path):
         check_exact=False,
         rtol=1e-12,
     )
+
+
+def test_event_study_from_fixtures(tmp_path):
+    """Panel -> event study -> tables and figures, offline, via the CLI."""
+    panel_path = tmp_path / "panel.csv"
+    out_dir = tmp_path / "reports"
+    assert main(["build-panel", "--mode", "fixture", "--output", str(panel_path)]) == 0
+
+    # The event-study command reads the default panel location, so point it
+    # at the freshly written panel by using the default path too.
+    settings = load_settings()
+    default_panel = settings.panel_dir / "etf_day_panel_fixture.csv"
+    default_panel.parent.mkdir(parents=True, exist_ok=True)
+    default_panel.write_bytes(panel_path.read_bytes())
+
+    assert main(["event-study", "--mode", "fixture", "--output-dir", str(out_dir)]) == 0
+
+    summary = pd.read_csv(out_dir / "event_summary.csv")
+    assert set(summary["ticker"]) == FIXTURE_TICKERS
+    assert (summary["event"] == "synthetic_stress_2024").all()
+
+    # Bond funds were built with the widest synthetic stress discounts, so
+    # their abnormal dislocation must exceed the domestic-equity fund's.
+    by_ticker = summary.set_index("ticker")["min_abnormal_bp"]
+    assert by_ticker["HYG"] < by_ticker["LQD"] < by_ticker["SPY"]
+    assert by_ticker["HYG"] < -100  # HYG built with a ~200bp stress discount
+
+    windows = pd.read_csv(out_dir / "event_windows.csv")
+    es = settings.event_study
+    assert len(windows) == len(FIXTURE_TICKERS) * (es.pre_days + es.post_days + 1)
+
+    peaks = pd.read_csv(out_dir / "event_bucket_peaks.csv")
+    assert set(peaks["bucket"]) == {
+        "domestic_equity", "international_equity", "ig_credit", "hy_credit", "rates",
+    }
+    assert (out_dir / "event_synthetic_stress_2024.png").is_file()

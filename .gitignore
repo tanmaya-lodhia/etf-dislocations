@@ -7,3 +7,4 @@ data/processed/
 data/panel/
 !data/fixtures/
 reports/figures/
+reports/fixture_run/

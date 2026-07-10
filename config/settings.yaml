@@ -13,3 +13,14 @@ liquidity:
   annualisation_days: 252
   # Rolling window (trading days) for the abnormal-volume z-score baseline.
   volume_window: 60
+
+event_study:
+  # Event window in trading days relative to the event start (SPEC.md 2.8).
+  pre_days: 10
+  post_days: 20
+  # Calm estimation window: up to this many trading days ending just before
+  # the event window, requiring at least the minimum to estimate a baseline.
+  estimation_days: 120
+  min_estimation_days: 40
+  # Confidence band half-width in calm-period standard deviations.
+  band_sigma: 1.96

@@ -24,3 +24,8 @@ event_study:
   min_estimation_days: 40
   # Confidence band half-width in calm-period standard deviations.
   band_sigma: 1.96
+
+mean_reversion:
+  # Minimum observation pairs required to fit an AR(1) in a regime
+  # subsample; regimes with fewer pairs are reported as missing.
+  min_obs: 30

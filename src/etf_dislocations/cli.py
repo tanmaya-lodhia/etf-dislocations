@@ -18,6 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from .analysis.event_study import run_event_study
+from .analysis.mean_reversion import run_mean_reversion
 from .analysis.panel_regression import load_regression_config, run_panel_regressions
 from .config import Settings, load_data_sources, load_settings, repo_root
 from .data.ingest_nav import ingest_nav, load_nav_dir
@@ -27,7 +28,11 @@ from .data.loaders import load_fixture_prices
 from .logging_utils import setup_logging
 from .panel import build_panel
 from .reporting.figures import plot_event_window
-from .reporting.tables import write_event_study_tables, write_regression_tables
+from .reporting.tables import (
+    write_event_study_tables,
+    write_mean_reversion_tables,
+    write_regression_tables,
+)
 from .stress.apply import add_stress_flags
 from .stress.tier1_events import load_tier1_events
 from .stress.tier2_rule import load_tier2_rules
@@ -182,6 +187,20 @@ def _panel_regression_command(mode: str, output_dir: Path | None) -> Path:
     return output_dir
 
 
+def _mean_reversion_command(mode: str, output_dir: Path | None) -> Path:
+    settings = load_settings()
+    panel = _load_built_panel(mode, settings)
+
+    half_lives, regime_tests = run_mean_reversion(
+        panel, settings.mean_reversion.min_obs
+    )
+    if output_dir is None:
+        output_dir = _default_output_dir(mode)
+    write_mean_reversion_tables(half_lives, regime_tests, output_dir)
+    logger.info("Mean-reversion outputs written to %s", output_dir)
+    return output_dir
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="etf-dislocations")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -227,6 +246,15 @@ def main(argv: list[str] | None = None) -> int:
         "--output-dir", type=Path, default=None, help="Directory for outputs"
     )
 
+    p_mr = sub.add_parser(
+        "mean-reversion",
+        help="Estimate AR(1) half-lives of the premium/discount by regime",
+    )
+    p_mr.add_argument("--mode", choices=["fixture", "public"], default="fixture")
+    p_mr.add_argument(
+        "--output-dir", type=Path, default=None, help="Directory for outputs"
+    )
+
     args = parser.parse_args(argv)
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
 
@@ -238,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         _event_study_command(args.mode, args.events, args.output_dir)
     elif args.command == "panel-regression":
         _panel_regression_command(args.mode, args.output_dir)
+    elif args.command == "mean-reversion":
+        _mean_reversion_command(args.mode, args.output_dir)
     return 0
 
 

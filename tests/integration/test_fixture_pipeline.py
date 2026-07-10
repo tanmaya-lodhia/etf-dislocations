@@ -169,3 +169,32 @@ def test_panel_regression_from_fixtures(tmp_path):
     # |premium/discount| and economically large (tens of bp).
     fi_stress = pooled.set_index("variable").loc["fixed_income_x_stress", "coef"]
     assert fi_stress > 0.002
+
+
+def test_mean_reversion_from_fixtures(tmp_path):
+    """Panel -> AR(1) half-lives and regime tests, offline, via the CLI."""
+    settings = load_settings()
+    default_panel = settings.panel_dir / "etf_day_panel_fixture.csv"
+    if not default_panel.is_file():
+        assert main(["build-panel", "--mode", "fixture"]) == 0
+
+    out_dir = tmp_path / "reports"
+    assert main(["mean-reversion", "--mode", "fixture", "--output-dir", str(out_dir)]) == 0
+
+    half_lives = pd.read_csv(out_dir / "mean_reversion_half_lives.csv")
+    tests = pd.read_csv(out_dir / "mean_reversion_regime_tests.csv")
+
+    # Full-sample fits exist for all five tickers. The fixture premium was
+    # generated with AR(1) persistence 0.7, but the bond funds also carry a
+    # persistent stress-window discount shift, which raises their measured
+    # full-sample persistence; all betas must still be stationary.
+    full = half_lives[half_lives["regime"] == "full"].set_index("ticker")
+    assert set(full.index) == FIXTURE_TICKERS
+    assert full["beta"].between(0.4, 0.98).all()
+    assert (full["half_life"] > 0.8).all()
+    assert full.loc["HYG", "beta"] > full.loc["SPY", "beta"]
+
+    # The 130-day fixture sample has ~20 stress days, below the 30-pair
+    # minimum, so stress-regime rows are correctly absent.
+    assert set(half_lives["regime"]) == {"full", "calm"}
+    assert len(tests) == len(FIXTURE_TICKERS)

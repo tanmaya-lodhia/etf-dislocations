@@ -16,6 +16,7 @@ dependencies = [
     "pandas_market_calendars>=4.3",
     "matplotlib>=3.8",
     "linearmodels>=6.0",
+    "statsmodels>=0.14",
 ]
 
 [project.optional-dependencies]

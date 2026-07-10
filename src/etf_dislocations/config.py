@@ -86,6 +86,11 @@ class EventStudySettings:
 
 
 @dataclass(frozen=True)
+class MeanReversionSettings:
+    min_obs: int
+
+
+@dataclass(frozen=True)
 class Settings:
     fixtures_dir: Path
     raw_dir: Path
@@ -93,6 +98,7 @@ class Settings:
     panel_dir: Path
     liquidity: LiquiditySettings
     event_study: EventStudySettings
+    mean_reversion: MeanReversionSettings
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -142,6 +148,13 @@ def load_settings(path: Path | None = None) -> Settings:
     if event_study.band_sigma <= 0:
         raise ValueError(f"band_sigma must be > 0, got {event_study.band_sigma}")
 
+    mr = cfg["mean_reversion"]
+    mean_reversion = MeanReversionSettings(min_obs=int(mr["min_obs"]))
+    if mean_reversion.min_obs < 10:
+        raise ValueError(
+            f"mean_reversion.min_obs must be >= 10, got {mean_reversion.min_obs}"
+        )
+
     return Settings(
         fixtures_dir=_resolve(paths["fixtures"]),
         raw_dir=_resolve(paths["raw"]),
@@ -153,4 +166,5 @@ def load_settings(path: Path | None = None) -> Settings:
             volume_window=volume_window,
         ),
         event_study=event_study,
+        mean_reversion=mean_reversion,
     )

@@ -73,6 +73,23 @@ def write_mean_reversion_tables(
     return written
 
 
+def write_robustness_tables(
+    regressions: pd.DataFrame, placebo: pd.DataFrame, out_dir: Path
+) -> list[Path]:
+    """Persist robustness-suite outputs as CSVs; returns written paths."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, frame in [
+        ("robustness_regressions", regressions),
+        ("robustness_placebo", placebo),
+    ]:
+        path = out_dir / f"{name}.csv"
+        frame.to_csv(path, index=False)
+        written.append(path)
+        logger.info("Wrote %s (%d rows)", path, len(frame))
+    return written
+
+
 def write_event_study_tables(output: EventStudyOutput, out_dir: Path) -> list[Path]:
     """Persist the event-study result set as CSVs; returns written paths."""
     out_dir.mkdir(parents=True, exist_ok=True)

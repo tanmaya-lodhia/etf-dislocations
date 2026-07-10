@@ -35,9 +35,9 @@ def test_full_pipeline_from_fixtures(tmp_path):
         foreign_calendars=sources.foreign_calendars,
     )
 
-    # Shape: 5 tickers x 130 fixture days, one row per ETF-day.
+    # Shape: 5 tickers x 260 fixture days, one row per ETF-day.
     assert set(panel["ticker"]) == FIXTURE_TICKERS
-    assert len(panel) == 5 * 130
+    assert len(panel) == 5 * 260
     assert list(panel.columns) == PANEL_COLUMNS
     assert not panel.duplicated(subset=["ticker", "date"]).any()
 
@@ -60,7 +60,7 @@ def test_full_pipeline_from_fixtures(tmp_path):
     # The synthetic stress window (fixture days 60-80) should show up as
     # elevated vol, elevated VIX, and a wider bond-fund discount.
     spy = panel[panel["ticker"] == "SPY"].reset_index(drop=True)
-    assert spy["realized_vol"].iloc[70:80].mean() > spy["realized_vol"].iloc[110:130].mean()
+    assert spy["realized_vol"].iloc[70:80].mean() > spy["realized_vol"].iloc[200:260].mean()
     assert spy["vix"].iloc[60:80].mean() > 2 * spy["vix"].iloc[:60].mean()
 
     lqd = panel[panel["ticker"] == "LQD"].reset_index(drop=True)
@@ -194,7 +194,48 @@ def test_mean_reversion_from_fixtures(tmp_path):
     assert (full["half_life"] > 0.8).all()
     assert full.loc["HYG", "beta"] > full.loc["SPY", "beta"]
 
-    # The 130-day fixture sample has ~20 stress days, below the 30-pair
-    # minimum, so stress-regime rows are correctly absent.
-    assert set(half_lives["regime"]) == {"full", "calm"}
+    # Full and calm fits exist for every ticker; stress-regime fits appear
+    # only where the ticker has at least min_obs stress pairs, and any that
+    # do appear must satisfy that minimum.
+    for regime in ["full", "calm"]:
+        subset = half_lives[half_lives["regime"] == regime]
+        assert set(subset["ticker"]) == FIXTURE_TICKERS
+    stress_rows = half_lives[half_lives["regime"] == "stress"]
+    assert (stress_rows["n"] >= settings.mean_reversion.min_obs).all()
     assert len(tests) == len(FIXTURE_TICKERS)
+
+
+def test_robustness_from_fixtures(tmp_path):
+    """Panel -> robustness suite -> variant regressions and placebo study."""
+    settings = load_settings()
+    default_panel = settings.panel_dir / "etf_day_panel_fixture.csv"
+    if not default_panel.is_file():
+        assert main(["build-panel", "--mode", "fixture"]) == 0
+
+    out_dir = tmp_path / "reports"
+    assert main([
+        "robustness", "--mode", "fixture",
+        "--output-dir", str(out_dir),
+        "--exclude-event", "synthetic_stress_2024",
+    ]) == 0
+
+    reg = pd.read_csv(out_dir / "robustness_regressions.csv")
+    variants = set(reg["variant"])
+    assert {
+        "baseline", "alt_dependent_log", "alt_spread_hl",
+        "tier2_pctl_090", "tier2_pctl_098",
+        "exclude_synthetic_stress_2024", "winsorized",
+    } <= variants
+
+    # The headline interaction stays positive under the measurement-choice
+    # perturbations (it is expected to shrink when the stress event itself
+    # is excluded, so that variant is not sign-constrained).
+    fi = reg[reg["variable"] == "fixed_income_x_stress"].set_index("variant")
+    for variant in ["baseline", "alt_dependent_log", "alt_spread_hl", "winsorized"]:
+        assert fi.loc[variant, "coef"] > 0
+
+    placebo = pd.read_csv(out_dir / "robustness_placebo.csv")
+    assert placebo["event"].str.startswith("placebo_").all()
+    # Placebo dislocations must be an order of magnitude below the real
+    # synthetic-event dislocations (~150-250bp for the bond funds).
+    assert placebo["max_abs_abnormal"].mean() < 0.01

@@ -20,7 +20,9 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SEED = 20260710
-N_DAYS = 130
+# Long enough that a placebo event study (120-day estimation window plus the
+# event window) fits entirely after the synthetic stress period.
+N_DAYS = 260
 START = "2024-01-02"
 # Trading days 60-80 get elevated volatility and volume: a synthetic "stress
 # window" clearly labelled as such in the fixtures README.

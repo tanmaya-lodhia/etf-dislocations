@@ -56,7 +56,7 @@ def test_load_fixture_prices_offline():
     prices = load_fixture_prices(settings.fixtures_dir)
     assert set(prices) == {"SPY", "EFA", "LQD", "HYG", "TLT"}
     for ticker, df in prices.items():
-        assert len(df) == 130, ticker
+        assert len(df) == 260, ticker
         assert df.index.is_monotonic_increasing
         assert not df.index.duplicated().any()
 

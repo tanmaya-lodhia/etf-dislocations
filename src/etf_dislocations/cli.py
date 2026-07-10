@@ -11,6 +11,7 @@ docs/data_notes.md); `ingest` must be run before `build-panel --mode public`.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ import pandas as pd
 from .analysis.event_study import run_event_study
 from .analysis.mean_reversion import run_mean_reversion
 from .analysis.panel_regression import load_regression_config, run_panel_regressions
+from .analysis.robustness import placebo_event_study, regression_variants
 from .config import Settings, load_data_sources, load_settings, repo_root
 from .data.ingest_nav import ingest_nav, load_nav_dir
 from .data.ingest_prices import ingest_prices
@@ -32,6 +34,7 @@ from .reporting.tables import (
     write_event_study_tables,
     write_mean_reversion_tables,
     write_regression_tables,
+    write_robustness_tables,
 )
 from .stress.apply import add_stress_flags
 from .stress.tier1_events import load_tier1_events
@@ -138,11 +141,7 @@ def _event_study_command(
     # Fixture mode defaults to the synthetic event window shipped with the
     # fixtures; public mode defaults to the pre-registered Tier-1 list.
     if events_path is None:
-        events_path = (
-            settings.fixtures_dir / "stress_windows.yaml"
-            if mode == "fixture"
-            else repo_root() / "config" / "stress_windows.yaml"
-        )
+        events_path = _default_events_path(mode, settings)
     events = load_tier1_events(events_path)
 
     # Fixture outputs are quarantined from real results (SPEC.md 5.4).
@@ -201,6 +200,37 @@ def _mean_reversion_command(mode: str, output_dir: Path | None) -> Path:
     return output_dir
 
 
+def _default_events_path(mode: str, settings: Settings) -> Path:
+    return (
+        settings.fixtures_dir / "stress_windows.yaml"
+        if mode == "fixture"
+        else repo_root() / "config" / "stress_windows.yaml"
+    )
+
+
+def _robustness_command(
+    mode: str, output_dir: Path | None, exclude_event: str | None
+) -> Path:
+    settings = load_settings()
+    panel = _load_built_panel(mode, settings)
+    events = load_tier1_events(_default_events_path(mode, settings))
+    reg_cfg = load_regression_config()
+    rules = load_tier2_rules()
+
+    rob = settings.robustness
+    if exclude_event is not None:
+        rob = dataclasses.replace(rob, exclude_event=exclude_event)
+
+    regressions = regression_variants(panel, reg_cfg, rules, events, rob)
+    placebo = placebo_event_study(panel, events, settings.event_study, rob)
+
+    if output_dir is None:
+        output_dir = _default_output_dir(mode)
+    write_robustness_tables(regressions, placebo, output_dir)
+    logger.info("Robustness outputs written to %s", output_dir)
+    return output_dir
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="etf-dislocations")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -255,6 +285,19 @@ def main(argv: list[str] | None = None) -> int:
         "--output-dir", type=Path, default=None, help="Directory for outputs"
     )
 
+    p_rob = sub.add_parser(
+        "robustness", help="Run the robustness suite on a built panel"
+    )
+    p_rob.add_argument("--mode", choices=["fixture", "public"], default="fixture")
+    p_rob.add_argument(
+        "--output-dir", type=Path, default=None, help="Directory for outputs"
+    )
+    p_rob.add_argument(
+        "--exclude-event",
+        default=None,
+        help="Tier-1 event dropped in the exclusion check (default from settings)",
+    )
+
     args = parser.parse_args(argv)
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
 
@@ -268,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
         _panel_regression_command(args.mode, args.output_dir)
     elif args.command == "mean-reversion":
         _mean_reversion_command(args.mode, args.output_dir)
+    elif args.command == "robustness":
+        _robustness_command(args.mode, args.output_dir, args.exclude_event)
     return 0
 
 

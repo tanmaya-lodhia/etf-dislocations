@@ -29,3 +29,16 @@ mean_reversion:
   # Minimum observation pairs required to fit an AR(1) in a regime
   # subsample; regimes with fewer pairs are reported as missing.
   min_obs: 30
+
+robustness:
+  # Seed for the placebo-window draw; fixed for reproducibility.
+  seed: 20260710
+  # Number of random non-stress placebo windows for the placebo event study.
+  n_placebo: 20
+  # Alternative Tier-2 percentile thresholds for the sensitivity check.
+  tier2_percentiles: [0.90, 0.975]
+  # Two-sided winsorisation share for the winsorised-dependent check.
+  winsor_pct: 0.01
+  # Tier-1 event excluded in the leave-one-event-out check (SPEC.md 2.11:
+  # March 2020 alone); overridable on the command line for fixture runs.
+  exclude_event: covid_2020

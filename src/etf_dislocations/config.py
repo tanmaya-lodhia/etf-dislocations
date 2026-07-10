@@ -91,6 +91,15 @@ class MeanReversionSettings:
 
 
 @dataclass(frozen=True)
+class RobustnessSettings:
+    seed: int
+    n_placebo: int
+    tier2_percentiles: tuple[float, ...]
+    winsor_pct: float
+    exclude_event: str
+
+
+@dataclass(frozen=True)
 class Settings:
     fixtures_dir: Path
     raw_dir: Path
@@ -99,6 +108,7 @@ class Settings:
     liquidity: LiquiditySettings
     event_study: EventStudySettings
     mean_reversion: MeanReversionSettings
+    robustness: RobustnessSettings
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -155,6 +165,24 @@ def load_settings(path: Path | None = None) -> Settings:
             f"mean_reversion.min_obs must be >= 10, got {mean_reversion.min_obs}"
         )
 
+    rb = cfg["robustness"]
+    robustness = RobustnessSettings(
+        seed=int(rb["seed"]),
+        n_placebo=int(rb["n_placebo"]),
+        tier2_percentiles=tuple(float(x) for x in rb["tier2_percentiles"]),
+        winsor_pct=float(rb["winsor_pct"]),
+        exclude_event=str(rb["exclude_event"]),
+    )
+    if robustness.n_placebo < 1:
+        raise ValueError(f"n_placebo must be >= 1, got {robustness.n_placebo}")
+    if not 0 < robustness.winsor_pct < 0.5:
+        raise ValueError(
+            f"winsor_pct must be in (0, 0.5), got {robustness.winsor_pct}"
+        )
+    for p in robustness.tier2_percentiles:
+        if not 0.5 < p < 1.0:
+            raise ValueError(f"tier2 percentile must be in (0.5, 1), got {p}")
+
     return Settings(
         fixtures_dir=_resolve(paths["fixtures"]),
         raw_dir=_resolve(paths["raw"]),
@@ -167,4 +195,5 @@ def load_settings(path: Path | None = None) -> Settings:
         ),
         event_study=event_study,
         mean_reversion=mean_reversion,
+        robustness=robustness,
     )

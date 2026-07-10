@@ -13,9 +13,11 @@ NAV files), premium/discount computation, the liquidity measure set
 (dollar volume, returns, realised volatility, Amihud, Corwin-Schultz and
 high-low spread proxies, abnormal volume, international stale-pricing flag),
 stress-window classification (pre-registered Tier-1 event windows plus the
-rule-based Tier-2 VIX/premium-volatility flags), and the dislocation event
+rule-based Tier-2 VIX/premium-volatility flags), the dislocation event
 study (calm-baseline abnormal premium/discount, confidence bands,
-time-to-normalization, bucket-level summaries and figures).
+time-to-normalization, bucket-level summaries and figures), and the panel
+regression (pre-registered channel specifications, entity/time fixed
+effects, two-way clustered standard errors).
 
 ## Quickstart
 

@@ -39,6 +39,23 @@ def bucket_peak_table(bucket_means: pd.DataFrame) -> pd.DataFrame:
     return peak.reset_index(drop=True)
 
 
+def write_regression_tables(
+    coefficients: pd.DataFrame, stats: pd.DataFrame, out_dir: Path
+) -> list[Path]:
+    """Persist panel-regression outputs as CSVs; returns written paths."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, frame in [
+        ("regression_coefficients", coefficients),
+        ("regression_stats", stats),
+    ]:
+        path = out_dir / f"{name}.csv"
+        frame.to_csv(path, index=False)
+        written.append(path)
+        logger.info("Wrote %s (%d rows)", path, len(frame))
+    return written
+
+
 def write_event_study_tables(output: EventStudyOutput, out_dir: Path) -> list[Path]:
     """Persist the event-study result set as CSVs; returns written paths."""
     out_dir.mkdir(parents=True, exist_ok=True)

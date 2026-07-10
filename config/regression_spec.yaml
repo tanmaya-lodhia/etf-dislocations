@@ -1,0 +1,40 @@
+# Panel regression specifications (SPEC.md section 2.9).
+# Fixed before estimation; do not add or remove variables after seeing
+# results. Feature names refer to panel columns or to the derived columns
+# documented in analysis/panel_regression.py:
+#   abs_premium_discount   = |premium_discount|  (dependent variable)
+#   fixed_income           = 1 for ig_credit / hy_credit buckets
+#   fixed_income_x_stress  = fixed_income * tier2_stress
+regression:
+  dependent: abs_premium_discount
+  # Two-way clustered standard errors: by ETF and by date.
+  cluster:
+    entity: true
+    time: true
+  specifications:
+    # Channel decomposition, pooled: ETF-pressure (abnormal_volume,
+    # cs_spread), underlying illiquidity (amihud_roll), arbitrage friction
+    # (stale_pricing), market-level control (vix).
+    - name: pooled_channels
+      features: [abnormal_volume, cs_spread, amihud_roll, stale_pricing, vix]
+      entity_effects: false
+      time_effects: false
+
+    # Adds the stress-day indicator and the fixed-income x stress
+    # interaction (H4: bond baskets are structurally harder to arbitrage).
+    - name: pooled_stress_interaction
+      features:
+        [abnormal_volume, cs_spread, amihud_roll, stale_pricing, vix,
+         tier2_stress, fixed_income_x_stress]
+      entity_effects: false
+      time_effects: false
+
+    # Robustness: ETF and time fixed effects. Market-wide variables (vix,
+    # the common component of tier2_stress) are absorbed by time effects and
+    # are therefore excluded.
+    - name: two_way_fixed_effects
+      features:
+        [abnormal_volume, cs_spread, amihud_roll, stale_pricing,
+         fixed_income_x_stress]
+      entity_effects: true
+      time_effects: true

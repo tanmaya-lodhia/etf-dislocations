@@ -137,3 +137,35 @@ def test_event_study_from_fixtures(tmp_path):
         "domestic_equity", "international_equity", "ig_credit", "hy_credit", "rates",
     }
     assert (out_dir / "event_synthetic_stress_2024.png").is_file()
+
+
+def test_panel_regression_from_fixtures(tmp_path):
+    """Panel -> configured regression specifications -> tables, offline."""
+    settings = load_settings()
+    default_panel = settings.panel_dir / "etf_day_panel_fixture.csv"
+    if not default_panel.is_file():
+        assert main(["build-panel", "--mode", "fixture"]) == 0
+
+    out_dir = tmp_path / "reports"
+    assert main(["panel-regression", "--mode", "fixture", "--output-dir", str(out_dir)]) == 0
+
+    coefs = pd.read_csv(out_dir / "regression_coefficients.csv")
+    stats = pd.read_csv(out_dir / "regression_stats.csv")
+
+    expected_specs = {
+        "pooled_channels", "pooled_stress_interaction", "two_way_fixed_effects",
+    }
+    assert set(stats["spec"]) == expected_specs
+    assert set(coefs["spec"]) == expected_specs
+    assert (stats["nobs"] > 100).all()
+    assert coefs["std_err"].gt(0).all()
+
+    # Every configured feature shows up in its spec's coefficient rows.
+    pooled = coefs[coefs["spec"] == "pooled_stress_interaction"]
+    assert {"tier2_stress", "fixed_income_x_stress", "const"} <= set(pooled["variable"])
+
+    # Fixtures were built with bond discounts widening in stress, so the
+    # fixed-income x stress interaction must come out positive for
+    # |premium/discount| and economically large (tens of bp).
+    fi_stress = pooled.set_index("variable").loc["fixed_income_x_stress", "coef"]
+    assert fi_stress > 0.002

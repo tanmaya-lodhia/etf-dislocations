@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test panel-fixture fixtures clean
+.PHONY: install test panel-fixture run-all-fixture fixtures clean
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -10,6 +10,9 @@ test:
 
 panel-fixture:
 	$(PYTHON) -m etf_dislocations.cli build-panel --mode fixture
+
+run-all-fixture:
+	$(PYTHON) -m etf_dislocations.cli run-all --mode fixture
 
 fixtures:
 	$(PYTHON) scripts/make_fixtures.py

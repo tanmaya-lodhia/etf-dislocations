@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
+import json
 import logging
 import sys
 from pathlib import Path
@@ -220,6 +222,13 @@ def _robustness_command(
     rob = settings.robustness
     if exclude_event is not None:
         rob = dataclasses.replace(rob, exclude_event=exclude_event)
+    elif mode == "fixture" and rob.exclude_event not in {e.name for e in events}:
+        # The settings default names a real Tier-1 event; in fixture mode
+        # fall back to the synthetic event so the exclusion check still runs.
+        rob = dataclasses.replace(rob, exclude_event=events[0].name)
+        logger.info(
+            "Fixture mode: exclusion check uses %r", rob.exclude_event
+        )
 
     regressions = regression_variants(panel, reg_cfg, rules, events, rob)
     placebo = placebo_event_study(panel, events, settings.event_study, rob)
@@ -228,6 +237,49 @@ def _robustness_command(
         output_dir = _default_output_dir(mode)
     write_robustness_tables(regressions, placebo, output_dir)
     logger.info("Robustness outputs written to %s", output_dir)
+    return output_dir
+
+
+def _write_manifest(output_dir: Path, mode: str) -> Path:
+    """Write a deterministic manifest of every output file: name, sha256,
+    and row count for CSVs. No timestamps, so identical runs produce
+    identical manifests - the manifest itself is the reproducibility check.
+    """
+    from . import __version__
+
+    entries = []
+    for path in sorted(output_dir.glob("*")):
+        if path.name == "run_manifest.json" or not path.is_file():
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        entry = {"file": path.name, "sha256": digest}
+        if path.suffix == ".csv":
+            with open(path, encoding="utf-8") as f:
+                entry["rows"] = sum(1 for _ in f) - 1
+        entries.append(entry)
+
+    manifest = {"mode": mode, "package_version": __version__, "outputs": entries}
+    path = output_dir / "run_manifest.json"
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    logger.info("Wrote %s (%d outputs)", path, len(entries))
+    return path
+
+
+def _run_all_command(
+    mode: str, output_dir: Path | None, exclude_event: str | None
+) -> Path:
+    """Full pipeline: panel -> event study -> regression -> mean reversion
+    -> robustness -> manifest, in one command."""
+    if output_dir is None:
+        output_dir = _default_output_dir(mode)
+
+    _build_panel_command(mode, None)
+    _event_study_command(mode, None, output_dir)
+    _panel_regression_command(mode, output_dir)
+    _mean_reversion_command(mode, output_dir)
+    _robustness_command(mode, output_dir, exclude_event)
+    _write_manifest(output_dir, mode)
+    logger.info("Full pipeline complete; outputs in %s", output_dir)
     return output_dir
 
 
@@ -298,6 +350,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Tier-1 event dropped in the exclusion check (default from settings)",
     )
 
+    p_all = sub.add_parser(
+        "run-all",
+        help="Run the full pipeline: panel, event study, regression, "
+        "mean reversion, robustness",
+    )
+    p_all.add_argument("--mode", choices=["fixture", "public"], default="fixture")
+    p_all.add_argument(
+        "--output-dir", type=Path, default=None, help="Directory for outputs"
+    )
+    p_all.add_argument(
+        "--exclude-event",
+        default=None,
+        help="Tier-1 event dropped in the robustness exclusion check",
+    )
+
     args = parser.parse_args(argv)
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
 
@@ -313,6 +380,8 @@ def main(argv: list[str] | None = None) -> int:
         _mean_reversion_command(args.mode, args.output_dir)
     elif args.command == "robustness":
         _robustness_command(args.mode, args.output_dir, args.exclude_event)
+    elif args.command == "run-all":
+        _run_all_command(args.mode, args.output_dir, args.exclude_event)
     return 0
 
 

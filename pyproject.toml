@@ -12,6 +12,8 @@ dependencies = [
     "pandas>=2.1",
     "numpy>=1.26",
     "PyYAML>=6.0",
+    "requests>=2.31",
+    "pandas_market_calendars>=4.3",
 ]
 
 [project.optional-dependencies]

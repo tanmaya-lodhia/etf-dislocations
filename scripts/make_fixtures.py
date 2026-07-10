@@ -35,6 +35,17 @@ FIXTURE_SPECS = {
     "TLT": (95.0, 0.15, 30e6),
 }
 
+# ticker -> (calm premium/discount noise sd, mean stress-window discount).
+# Bond funds get a materially wider stress discount than equity funds so the
+# fixture panel exhibits the cross-sectional pattern later milestones test on.
+NAV_SPECS = {
+    "SPY": (0.0003, -0.001),
+    "EFA": (0.0010, -0.004),
+    "LQD": (0.0015, -0.015),
+    "HYG": (0.0020, -0.020),
+    "TLT": (0.0008, -0.003),
+}
+
 
 def make_ticker_frame(
     rng: np.random.Generator, start_price: float, ann_vol: float, base_volume: float
@@ -67,16 +78,58 @@ def make_ticker_frame(
     )
 
 
+def make_nav_frame(
+    rng: np.random.Generator,
+    prices: pd.DataFrame,
+    noise_sd: float,
+    stress_discount: float,
+) -> pd.DataFrame:
+    """Synthetic NAV: close divided by (1 + premium), where the premium is
+    AR(1) noise in calm periods and shifts to a persistent discount in the
+    synthetic stress window."""
+    n = len(prices)
+    target = np.zeros(n)
+    target[STRESS_START:STRESS_END] = stress_discount
+
+    prem = np.zeros(n)
+    for t in range(1, n):
+        prem[t] = 0.7 * prem[t - 1] + 0.3 * target[t] + rng.normal(0, noise_sd)
+
+    nav = prices["close"].to_numpy() / (1 + prem)
+    return pd.DataFrame({"date": prices["date"], "nav": nav.round(4)})
+
+
+def make_vix_frame(rng: np.random.Generator) -> pd.DataFrame:
+    dates = pd.bdate_range(START, periods=N_DAYS)
+    level = np.full(N_DAYS, 14.0)
+    level[STRESS_START:STRESS_END] = 35.0
+    vix = level * rng.lognormal(0, 0.08, N_DAYS)
+    return pd.DataFrame(
+        {"date": dates.strftime("%Y-%m-%d"), "vix": vix.round(2)}
+    )
+
+
 def main() -> int:
-    out_dir = REPO_ROOT / "data" / "fixtures" / "prices"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    fixtures = REPO_ROOT / "data" / "fixtures"
+    prices_dir = fixtures / "prices"
+    nav_dir = fixtures / "nav"
+    prices_dir.mkdir(parents=True, exist_ok=True)
+    nav_dir.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(SEED)
     for ticker, (price, vol, share_vol) in FIXTURE_SPECS.items():
         df = make_ticker_frame(rng, price, vol, share_vol)
-        path = out_dir / f"{ticker}.csv"
-        df.to_csv(path, index=False)
-        print(f"wrote {path} ({len(df)} rows)")
+        df.to_csv(prices_dir / f"{ticker}.csv", index=False)
+        print(f"wrote {prices_dir / (ticker + '.csv')} ({len(df)} rows)")
+
+        noise_sd, stress_disc = NAV_SPECS[ticker]
+        nav = make_nav_frame(rng, df, noise_sd, stress_disc)
+        nav.to_csv(nav_dir / f"{ticker}.csv", index=False)
+        print(f"wrote {nav_dir / (ticker + '.csv')} ({len(nav)} rows)")
+
+    vix = make_vix_frame(rng)
+    vix.to_csv(fixtures / "vix.csv", index=False)
+    print(f"wrote {fixtures / 'vix.csv'} ({len(vix)} rows)")
     return 0
 
 

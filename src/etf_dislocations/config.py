@@ -25,6 +25,55 @@ def repo_root() -> Path:
 class LiquiditySettings:
     rolling_window: int
     annualisation_days: int
+    volume_window: int = 60
+
+
+@dataclass(frozen=True)
+class StooqConfig:
+    url_template: str
+    vix_symbol: str
+    price_symbols: dict[str, str]
+
+
+@dataclass(frozen=True)
+class NavConfig:
+    date_columns: tuple[str, ...]
+    nav_columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DataSources:
+    stooq: StooqConfig
+    nav: NavConfig
+    foreign_calendars: dict[str, str]
+
+
+def load_data_sources(path: Path | None = None) -> DataSources:
+    """Load public data-source configuration from config/data_sources.yaml."""
+    if path is None:
+        path = repo_root() / "config" / "data_sources.yaml"
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    stooq = cfg["stooq"]
+    nav = cfg["nav"]
+    return DataSources(
+        stooq=StooqConfig(
+            url_template=str(stooq["url_template"]),
+            vix_symbol=str(stooq["vix_symbol"]),
+            price_symbols={
+                str(k).upper(): str(v) for k, v in stooq["price_symbols"].items()
+            },
+        ),
+        nav=NavConfig(
+            date_columns=tuple(nav["date_columns"]),
+            nav_columns=tuple(nav["nav_columns"]),
+        ),
+        foreign_calendars={
+            str(k).upper(): str(v)
+            for k, v in cfg["stale_pricing"]["foreign_calendars"].items()
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -56,12 +105,15 @@ def load_settings(path: Path | None = None) -> Settings:
 
     rolling_window = int(liq["rolling_window"])
     annualisation_days = int(liq["annualisation_days"])
+    volume_window = int(liq.get("volume_window", 60))
     if rolling_window < 2:
         raise ValueError(f"rolling_window must be >= 2, got {rolling_window}")
     if annualisation_days < 1:
         raise ValueError(
             f"annualisation_days must be >= 1, got {annualisation_days}"
         )
+    if volume_window < 2:
+        raise ValueError(f"volume_window must be >= 2, got {volume_window}")
 
     return Settings(
         fixtures_dir=_resolve(paths["fixtures"]),
@@ -71,5 +123,6 @@ def load_settings(path: Path | None = None) -> Settings:
         liquidity=LiquiditySettings(
             rolling_window=rolling_window,
             annualisation_days=annualisation_days,
+            volume_window=volume_window,
         ),
     )

@@ -1,0 +1,43 @@
+# Public data sources (SPEC.md sections 2.2, 2.4).
+# Stooq offers a documented CSV download endpoint per symbol; one GET per
+# ticker per run, no scraping. NAV history has no reliable free API and is
+# downloaded manually from sponsor fund pages into data/raw/nav/<TICKER>.csv
+# (see docs/data_notes.md for per-sponsor instructions).
+
+stooq:
+  url_template: "https://stooq.com/q/d/l/?s={symbol}&i=d"
+  vix_symbol: "^vix"
+  price_symbols:
+    SPY: spy.us
+    IVV: ivv.us
+    QQQ: qqq.us
+    XLF: xlf.us
+    XLE: xle.us
+    XLK: xlk.us
+    EFA: efa.us
+    EEM: eem.us
+    VWO: vwo.us
+    LQD: lqd.us
+    AGG: agg.us
+    BND: bnd.us
+    HYG: hyg.us
+    JNK: jnk.us
+    TLT: tlt.us
+    IEF: ief.us
+    SHY: shy.us
+
+nav:
+  # Accepted header spellings for manually downloaded NAV files; the first
+  # match wins. Files must be CSV with one row per trading day.
+  date_columns: ["date", "Date", "as_of", "As Of", "AsOfDate"]
+  nav_columns: ["nav", "NAV", "nav_per_share", "NAV per Share", "NAV per share"]
+
+stale_pricing:
+  # Representative primary-market calendar per international ETF, used to
+  # flag US trading days when the underlying market was closed (SPEC.md
+  # section 2.6). A single calendar per fund is a simplification for
+  # multi-country baskets; documented in docs/data_notes.md.
+  foreign_calendars:
+    EFA: XLON
+    EEM: XHKG
+    VWO: XHKG

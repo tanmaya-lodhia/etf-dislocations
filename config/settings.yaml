@@ -11,3 +11,5 @@ liquidity:
   rolling_window: 21
   # Trading days per year used to annualise realised volatility.
   annualisation_days: 252
+  # Rolling window (trading days) for the abnormal-volume z-score baseline.
+  volume_window: 60

@@ -7,9 +7,11 @@ design; this README will be expanded as milestones land (SPEC.md section 9).
 
 ## Status
 
-Milestone 1 complete: package skeleton, config system, offline fixture
-dataset, fixture loading, panel construction, and basic liquidity metrics
-(dollar volume, daily returns, realised volatility, Amihud illiquidity).
+Milestones 1-2 complete: package skeleton, config system, offline fixture
+dataset, public-mode ingestion (Stooq prices/VIX, manually downloaded sponsor
+NAV files), premium/discount computation, and the liquidity measure set
+(dollar volume, returns, realised volatility, Amihud, Corwin-Schultz and
+high-low spread proxies, abnormal volume, international stale-pricing flag).
 
 ## Quickstart
 
@@ -17,6 +19,14 @@ dataset, fixture loading, panel construction, and basic liquidity metrics
 pip install -e ".[dev]"
 pytest                                      # full suite, runs offline
 etf-dislocations build-panel --mode fixture # writes data/panel/etf_day_panel_fixture.csv
+```
+
+For real data: place sponsor NAV downloads in `data/raw/nav/<TICKER>.csv`
+(see `docs/data_notes.md`), then
+
+```bash
+etf-dislocations ingest --mode public
+etf-dislocations build-panel --mode public
 ```
 
 Fixture data is synthetic (see `data/fixtures/README.md`) — fixture-mode

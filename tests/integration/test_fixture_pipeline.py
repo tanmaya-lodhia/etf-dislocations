@@ -10,6 +10,9 @@ from etf_dislocations.data.ingest_nav import load_nav_dir
 from etf_dislocations.data.ingest_vix import load_vix_csv
 from etf_dislocations.data.loaders import load_fixture_prices
 from etf_dislocations.panel import PANEL_COLUMNS, build_panel
+from etf_dislocations.stress.apply import STRESS_COLUMNS, add_stress_flags
+from etf_dislocations.stress.tier1_events import load_tier1_events
+from etf_dislocations.stress.tier2_rule import load_tier2_rules
 from etf_dislocations.universe import load_universe
 
 FIXTURE_TICKERS = {"SPY", "EFA", "LQD", "HYG", "TLT"}
@@ -68,14 +71,30 @@ def test_full_pipeline_from_fixtures(tmp_path):
     # Stale-pricing flags exist only for the international fund.
     assert not panel.loc[panel["ticker"] != "EFA", "stale_pricing"].any()
 
+    # Stress layer: fixture dates (2024) are outside every Tier-1 window;
+    # Tier-2 VIX flags must exist and fall inside the synthetic stress
+    # window (fixture days 60-80).
+    panel = add_stress_flags(panel, load_tier1_events(), load_tier2_rules())
+    assert list(panel.columns) == PANEL_COLUMNS + STRESS_COLUMNS
+    assert not panel["tier1_stress"].any()
+    assert panel["vix_stress"].any()
+    # The change rule may also catch isolated calm-period jumps, so require
+    # the flags to be concentrated in the window rather than exclusive to it.
+    spy_flags = panel[panel["ticker"] == "SPY"].reset_index(drop=True)
+    flagged_days = spy_flags.index[spy_flags["vix_stress"]]
+    in_window = ((flagged_days >= 60) & (flagged_days < 80)).sum()
+    assert in_window > len(flagged_days) - in_window
+    assert panel["tier2_stress"].sum() >= panel["vix_stress"].sum()
+
     # Same pipeline through the CLI, writing to a temp file.
     out = tmp_path / "panel.csv"
     assert main(["build-panel", "--mode", "fixture", "--output", str(out)]) == 0
     written = pd.read_csv(out, parse_dates=["date"])
     assert len(written) == len(panel)
-    assert list(written.columns) == PANEL_COLUMNS
+    assert list(written.columns) == PANEL_COLUMNS + STRESS_COLUMNS
 
     # Determinism: in-memory build and CLI-written file agree numerically.
+    written["tier1_event"] = written["tier1_event"].astype("string")
     pd.testing.assert_frame_equal(
         written.sort_values(["ticker", "date"]).reset_index(drop=True),
         panel.reset_index(drop=True),

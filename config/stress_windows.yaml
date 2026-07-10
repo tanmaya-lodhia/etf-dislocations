@@ -1,0 +1,22 @@
+# Tier-1 canonical stress windows (SPEC.md section 2.7).
+# Pre-registered before estimation; do not adjust after seeing results.
+events:
+  - name: flash_crash_2015
+    start: 2015-08-18
+    end: 2015-08-28
+    note: 24 August 2015 ETF flash crash and surrounding week
+
+  - name: selloff_dec2018
+    start: 2018-12-14
+    end: 2018-12-31
+    note: December 2018 equity selloff into the Christmas Eve low
+
+  - name: covid_2020
+    start: 2020-02-24
+    end: 2020-04-03
+    note: COVID liquidity crisis; primary event, fixed-income ETF discounts
+
+  - name: rates_2022
+    start: 2022-09-19
+    end: 2022-10-14
+    note: UK gilt crisis and global rates selloff

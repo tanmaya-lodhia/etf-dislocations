@@ -1,0 +1,10 @@
+# Tier-2 rule-based stress-day definition (SPEC.md section 2.7).
+# A day is a stress day if the VIX level OR the VIX one-day change is in the
+# top tail of the sample, OR the ETF's own rolling premium/discount
+# volatility is in the top tail of that ETF's sample. Thresholds are fixed
+# here before estimation and must not be tuned against results.
+tier2:
+  vix_level_percentile: 0.95
+  vix_change_percentile: 0.95
+  pd_vol_window: 21
+  pd_vol_percentile: 0.95

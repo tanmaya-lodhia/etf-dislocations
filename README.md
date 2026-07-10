@@ -7,11 +7,13 @@ design; this README will be expanded as milestones land (SPEC.md section 9).
 
 ## Status
 
-Milestones 1-2 complete: package skeleton, config system, offline fixture
+Milestones 1-3 complete: package skeleton, config system, offline fixture
 dataset, public-mode ingestion (Stooq prices/VIX, manually downloaded sponsor
-NAV files), premium/discount computation, and the liquidity measure set
+NAV files), premium/discount computation, the liquidity measure set
 (dollar volume, returns, realised volatility, Amihud, Corwin-Schultz and
-high-low spread proxies, abnormal volume, international stale-pricing flag).
+high-low spread proxies, abnormal volume, international stale-pricing flag),
+and stress-window classification (pre-registered Tier-1 event windows plus
+the rule-based Tier-2 VIX/premium-volatility flags).
 
 ## Quickstart
 

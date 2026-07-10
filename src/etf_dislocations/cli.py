@@ -22,6 +22,9 @@ from .data.ingest_vix import ingest_vix, load_vix_csv
 from .data.loaders import load_fixture_prices
 from .logging_utils import setup_logging
 from .panel import build_panel
+from .stress.apply import add_stress_flags
+from .stress.tier1_events import load_tier1_events
+from .stress.tier2_rule import load_tier2_rules
 from .universe import Universe, load_universe
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,7 @@ def _build_panel_command(mode: str, output: Path | None) -> Path:
         vix=vix,
         foreign_calendars=sources.foreign_calendars,
     )
+    panel = add_stress_flags(panel, load_tier1_events(), load_tier2_rules())
 
     if output is None:
         output = settings.panel_dir / f"etf_day_panel_{mode}.csv"

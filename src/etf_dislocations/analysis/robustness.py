@@ -71,21 +71,9 @@ def _run_variant(
     reg_cfg: RegressionConfig,
 ) -> pd.DataFrame:
     # A perturbation can make a feature constant in the remaining sample
-    # (e.g. excluding the only stress event zeroes the stress dummy); such
-    # features are dropped for this variant rather than crashing on rank.
-    complete = frame.loc[:, [dependent, *spec.features]].dropna()
-    constant = [f for f in spec.features if complete[f].nunique() <= 1]
-    if constant:
-        logger.warning(
-            "%s: dropping zero-variance features %s", variant, constant
-        )
-        spec = dataclasses.replace(
-            spec,
-            features=tuple(f for f in spec.features if f not in constant),
-        )
-        if not spec.features:
-            raise ValueError(f"{variant}: all features are constant")
-
+    # (e.g. excluding the only stress event zeroes the stress dummy);
+    # run_specification() drops such features for this call rather than
+    # crashing on a rank-deficient design matrix.
     coefs, stats = run_specification(
         frame,
         spec,

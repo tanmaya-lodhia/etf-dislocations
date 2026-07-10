@@ -21,6 +21,7 @@ coefficients so sample differences stay visible.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,7 +119,13 @@ def run_specification(
     """Estimate one specification; returns (coefficient table, fit stats).
 
     A constant is included for pooled specifications; with fixed effects the
-    constant is absorbed and omitted.
+    constant is absorbed and omitted. If the complete-case sample leaves a
+    feature with no variance (e.g. a sparse real-data run where dropping
+    rows with a missing dependent value happens to leave only entities for
+    which that feature never varies - a domestic ticker's stale_pricing flag
+    is always zero, say), that feature is dropped with a warning rather than
+    handed to the solver, which would otherwise fail on a rank-deficient
+    design matrix.
     """
     from linearmodels.panel import PanelOLS
 
@@ -130,6 +137,32 @@ def run_specification(
     data = frame.loc[:, cols].dropna()
     if data.empty:
         raise ValueError(f"{spec.name}: no complete observations")
+
+    constant = [f for f in spec.features if data[f].nunique() <= 1]
+    if constant:
+        logger.warning(
+            "%s: dropping zero-variance features in this sample: %s",
+            spec.name, constant,
+        )
+        spec = dataclasses.replace(
+            spec, features=tuple(f for f in spec.features if f not in constant)
+        )
+        if not spec.features:
+            raise ValueError(f"{spec.name}: all features are constant")
+
+    n_entities = data.index.get_level_values(0).nunique()
+    n_periods = data.index.get_level_values(1).nunique()
+    if spec.entity_effects and n_entities < 2:
+        raise ValueError(
+            f"{spec.name}: entity_effects requires at least 2 entities in "
+            f"the complete-case sample, got {n_entities} (a single entity "
+            f"has no cross-sectional heterogeneity to remove)"
+        )
+    if spec.time_effects and n_periods < 2:
+        raise ValueError(
+            f"{spec.name}: time_effects requires at least 2 time periods in "
+            f"the complete-case sample, got {n_periods}"
+        )
 
     exog = data[list(spec.features)]
     if not (spec.entity_effects or spec.time_effects):
@@ -182,19 +215,32 @@ def run_panel_regressions(
     """Run every configured specification on the panel.
 
     Returns a tidy coefficient table (one row per spec-variable) and a fit
-    statistics table (one row per spec).
+    statistics table (one row per spec). A specification that is not
+    estimable in this sample (e.g. fixed effects requested with too few
+    entities/time periods once incomplete rows are dropped - expected in a
+    NAV-data-sparse real-data run) is skipped with a warning rather than
+    aborting the whole run; every other specification still runs and reports.
     """
     frame = prepare_regression_frame(panel)
     coef_tables = []
     stat_rows = []
     for spec in cfg.specifications:
-        coefs, stats = run_specification(
-            frame,
-            spec,
-            cfg.dependent,
-            cluster_entity=cfg.cluster_entity,
-            cluster_time=cfg.cluster_time,
-        )
+        try:
+            coefs, stats = run_specification(
+                frame,
+                spec,
+                cfg.dependent,
+                cluster_entity=cfg.cluster_entity,
+                cluster_time=cfg.cluster_time,
+            )
+        except ValueError as exc:
+            logger.warning("%s: skipped - %s", spec.name, exc)
+            continue
         coef_tables.append(coefs)
         stat_rows.append(stats)
+
+    if not coef_tables:
+        raise ValueError(
+            "No regression specification was estimable on this sample"
+        )
     return pd.concat(coef_tables, ignore_index=True), pd.DataFrame(stat_rows)

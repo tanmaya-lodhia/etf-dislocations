@@ -1,40 +1,73 @@
 # Data sources and caveats
 
 Per-source notes required by SPEC.md (sections 2.2, 5). Record the access
-date whenever real data is downloaded.
+date whenever real data is downloaded. See `docs/live_data_audit.md` for the
+full 2026-07-10 live-data validation this file's Stooq/Yahoo/SPDR sections
+summarize, and `docs/etf_data_availability.csv` for the per-ticker
+machine-readable classification.
 
 ## Daily prices (public mode)
 
-Source: Stooq CSV download endpoint, one GET per symbol per run
-(`https://stooq.com/q/d/l/?s=<symbol>&i=d`). Symbol mapping lives in
-`config/data_sources.yaml`. Stooq daily bars are unadjusted for
-distributions, which is acceptable here because the premium/discount and
-liquidity measures use same-day prices, not long-horizon total returns.
-Unknown symbols return a plain-text message rather than an HTTP error; the
-parser detects this and fails loudly.
+**Default source, currently non-functional:** Stooq's CSV download endpoint
+(`https://stooq.com/q/d/l/?s=<symbol>&i=d`), one GET per symbol per run.
+Symbol mapping lives in `config/data_sources.yaml`. Stooq daily bars are
+unadjusted for distributions, which is acceptable here because the
+premium/discount and liquidity measures use same-day prices, not
+long-horizon total returns. Unknown symbols return a plain-text message
+rather than an HTTP error; the parser detects this and fails loudly.
+
+As of 2026-07-10, Stooq's endpoint serves a client-side JS proof-of-work
+anti-bot challenge to every request, site-wide, regardless of symbol or
+User-Agent (see `docs/live_data_audit.md` Phase 1) — it currently returns no
+usable data. It remains the configured default (the parser now raises a
+specific, diagnosable error naming this cause) because the challenge may be
+lifted or scoped down later, and because switching the default silently
+would violate the project's no-silent-source-substitution rule.
+
+**Documented fallback (opt-in):** Yahoo Finance's public chart JSON endpoint
+(`https://query1.finance.yahoo.com/v8/finance/chart/{symbol}`, the same one
+`yfinance` wraps — named as acceptable in SPEC.md section 2.2), confirmed
+working for all 17 universe tickers plus `^VIX` on 2026-07-10. Use via
+`etf-dislocations ingest --price-source yahoo`. Same unadjusted-close
+convention as Stooq (separate `adjclose`/`dividends` fields exist but are
+not ingested).
 
 ## VIX (public mode)
 
-Same Stooq endpoint, symbol configured as `^vix`. Used by the Tier-2
-stress-day rule (SPEC.md section 2.7). If the symbol stops resolving, fix the
-mapping in `config/data_sources.yaml` rather than the code.
+Same source pairing as prices: Stooq by default (`^vix` symbol, currently
+blocked - see above), Yahoo as the opt-in fallback (`^VIX`, confirmed
+working). If a symbol stops resolving on either source, fix the mapping in
+`config/data_sources.yaml` rather than the code.
 
-## NAV (public mode, manual download)
+## NAV (public mode)
 
-There is no reliable free API for historical ETF NAV, so NAV files are
-downloaded by hand from sponsor fund pages into `data/raw/nav/<TICKER>.csv`:
+**Automated, keyless source confirmed for State Street/SPDR-sponsored
+funds** (SPY, XLF, XLE, XLK, JNK): a stable per-fund NAV-history export at
+`ssga.com/.../navhist-us-en-<ticker>.xlsx`, discoverable directly in the
+fund page's static HTML (no JavaScript needed). `etf-dislocations ingest`
+downloads this automatically for these five tickers when no manual
+`data/raw/nav/<TICKER>.csv` is present — a manually placed file always takes
+priority. Confirmed 2026-07-10; SPY's file alone covers 2003-12-01 to
+present (5,689 rows), comfortably spanning every Tier-1 stress window.
+
+**Everyone else still requires a manual download.** No reliable free API
+for historical NAV was found for the remaining sponsors this session (an
+iShares fund page is a client-side-rendered SPA with no static download
+link — see `docs/live_data_audit.md` Phase 2 for what was tried and why
+further probing was not attempted). NAV files are downloaded by hand from
+sponsor fund pages into `data/raw/nav/<TICKER>.csv`:
 
 - iShares funds (IVV, EFA, EEM, LQD, AGG, HYG, TLT, IEF, SHY): fund page →
   "Performance" / "Distributions & NAV history" download.
-- SPDR funds (SPY, XLF, XLE, XLK, JNK): fund page → "Documents" → historical
-  NAV download.
 - Vanguard funds (VWO, BND): fund page → "Price & distributions" → export.
+- Invesco fund (QQQ): fund page → "Distributions" / "Fund Documents" →
+  historical NAV export.
 
 Files must be CSV with one row per trading day. Accepted header spellings for
 the date and NAV columns are configured in `config/data_sources.yaml`; extend
 that list if a sponsor changes its export format. `etf-dislocations ingest`
-normalises everything to canonical `date,nav` files under
-`data/processed/nav/`.
+normalises everything (both manual-CSV and automated-SPDR paths) to
+canonical `date,nav` files under `data/processed/nav/`.
 
 Known caveat: this is end-of-day official NAV, not intraday iNAV, so all
 premium/discount measures are daily-close measures (SPEC.md section 1.6).

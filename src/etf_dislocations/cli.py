@@ -1,11 +1,15 @@
 """Command-line entry points.
 
-    etf-dislocations ingest --mode public [--tickers SPY LQD ...]
+    etf-dislocations ingest --mode public [--tickers SPY LQD ...] [--price-source stooq|yahoo]
     etf-dislocations build-panel --mode fixture|public [--output PATH]
+    etf-dislocations freeze --mode public --price-source yahoo [--name NAME] [--notes TEXT]
 
 Fixture mode is fully offline. Public mode fetches prices and VIX from Stooq
-and parses manually downloaded NAV files from data/raw/nav/ (see
-docs/data_notes.md); `ingest` must be run before `build-panel --mode public`.
+by default (see docs/live_data_audit.md for its current anti-bot-challenge
+status; --price-source yahoo is a documented fallback) and NAV from either a
+manually downloaded file in data/raw/nav/ or, for SPDR-sponsored tickers, an
+automated download (see docs/data_notes.md); `ingest` must be run before
+`build-panel --mode public`.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import hashlib
 import json
 import logging
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -26,9 +31,10 @@ from .analysis.panel_regression import load_regression_config, run_panel_regress
 from .analysis.robustness import placebo_event_study, regression_variants
 from .config import Settings, load_data_sources, load_settings, repo_root
 from .data.ingest_nav import ingest_nav, load_nav_dir
-from .data.ingest_prices import ingest_prices
-from .data.ingest_vix import ingest_vix, load_vix_csv
+from .data.ingest_prices import ingest_prices, ingest_prices_yahoo
+from .data.ingest_vix import ingest_vix, ingest_vix_yahoo, load_vix_csv
 from .data.loaders import load_fixture_prices
+from .freeze import build_provenance, freeze_panel
 from .logging_utils import setup_logging
 from .panel import build_panel
 from .reporting.figures import plot_event_window
@@ -46,7 +52,9 @@ from .universe import Universe, load_universe
 logger = logging.getLogger(__name__)
 
 
-def _ingest_command(mode: str, tickers: list[str] | None) -> None:
+def _ingest_command(
+    mode: str, tickers: list[str] | None, price_source: str = "stooq"
+) -> None:
     if mode != "public":
         raise SystemExit("ingest only applies to --mode public")
     settings = load_settings()
@@ -56,12 +64,24 @@ def _ingest_command(mode: str, tickers: list[str] | None) -> None:
     selected = tickers if tickers else universe.tickers
     universe.subset(selected)  # validates tickers against the universe
 
-    ingest_prices(
-        selected, sources.stooq, settings.raw_dir, settings.processed_dir
-    )
-    ingest_vix(sources.stooq, settings.raw_dir, settings.processed_dir)
+    if price_source == "yahoo":
+        logger.info("Using Yahoo Finance fallback price source (opt-in)")
+        ingest_prices_yahoo(
+            selected, sources.yahoo, settings.raw_dir, settings.processed_dir
+        )
+        ingest_vix_yahoo(sources.yahoo, settings.raw_dir, settings.processed_dir)
+    else:
+        ingest_prices(
+            selected, sources.stooq, settings.raw_dir, settings.processed_dir
+        )
+        ingest_vix(sources.stooq, settings.raw_dir, settings.processed_dir)
+
     nav = ingest_nav(
-        selected, settings.raw_dir / "nav", settings.processed_dir, sources.nav
+        selected,
+        settings.raw_dir / "nav",
+        settings.processed_dir,
+        sources.nav,
+        spdr_cfg=sources.spdr_navhist,
     )
     logger.info(
         "Ingestion complete: %d tickers, NAV available for %d",
@@ -173,6 +193,41 @@ def _load_built_panel(mode: str, settings: Settings) -> pd.DataFrame:
 def _default_output_dir(mode: str) -> Path:
     reports = repo_root() / "reports"
     return reports / "fixture_run" if mode == "fixture" else reports
+
+
+def _freeze_command(
+    mode: str,
+    price_source: str,
+    name: str | None,
+    notes: str | None,
+    force: bool,
+    output_dir: Path | None = None,
+) -> Path:
+    """Snapshot a built panel to data/frozen/ for reproducible paper writing.
+
+    A live source changes day to day; this is the point at which the
+    project stops depending on it for a given set of results.
+    """
+    settings = load_settings()
+    panel = _load_built_panel(mode, settings)
+    provenance = build_provenance(
+        panel,
+        mode=mode,
+        price_source=price_source,
+        retrieved=date.today().isoformat(),
+        notes=notes,
+    )
+    parquet_path, provenance_path = freeze_panel(
+        panel,
+        output_dir if output_dir is not None else settings.frozen_dir,
+        provenance,
+        name=name,
+        force=force,
+    )
+    logger.info(
+        "Frozen snapshot: %s (provenance: %s)", parquet_path, provenance_path
+    )
+    return parquet_path
 
 
 def _panel_regression_command(mode: str, output_dir: Path | None) -> Path:
@@ -298,6 +353,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="TICKER",
         help="Subset of the universe to ingest (default: all)",
     )
+    p_ingest.add_argument(
+        "--price-source",
+        choices=["stooq", "yahoo"],
+        default="stooq",
+        help="Price/VIX source; stooq is the documented default (currently "
+        "blocked by an anti-bot challenge - see docs/live_data_audit.md), "
+        "yahoo is an opt-in fallback",
+    )
 
     p_panel = sub.add_parser(
         "build-panel", help="Build the ETF-day panel with dislocation measures"
@@ -365,11 +428,44 @@ def main(argv: list[str] | None = None) -> int:
         help="Tier-1 event dropped in the robustness exclusion check",
     )
 
+    p_freeze = sub.add_parser(
+        "freeze",
+        help="Snapshot a built panel to data/frozen/ for reproducible paper writing",
+    )
+    p_freeze.add_argument("--mode", choices=["fixture", "public"], default="public")
+    p_freeze.add_argument(
+        "--price-source",
+        choices=["stooq", "yahoo", "fixture"],
+        default="stooq",
+        help="Price source used to build the panel being frozen, recorded "
+        "in the provenance record (not re-fetched)",
+    )
+    p_freeze.add_argument(
+        "--name",
+        default=None,
+        help="Snapshot base name (default: etf_panel_<today's date>)",
+    )
+    p_freeze.add_argument(
+        "--notes", default=None, help="Free-text note stored in the provenance record"
+    )
+    p_freeze.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing snapshot of the same name (snapshots "
+        "are meant to be permanent; use only to intentionally replace one)",
+    )
+    p_freeze.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for the snapshot (default: data/frozen/)",
+    )
+
     args = parser.parse_args(argv)
     setup_logging(logging.DEBUG if args.verbose else logging.INFO)
 
     if args.command == "ingest":
-        _ingest_command(args.mode, args.tickers)
+        _ingest_command(args.mode, args.tickers, args.price_source)
     elif args.command == "build-panel":
         _build_panel_command(args.mode, args.output)
     elif args.command == "event-study":
@@ -382,6 +478,11 @@ def main(argv: list[str] | None = None) -> int:
         _robustness_command(args.mode, args.output_dir, args.exclude_event)
     elif args.command == "run-all":
         _run_all_command(args.mode, args.output_dir, args.exclude_event)
+    elif args.command == "freeze":
+        _freeze_command(
+            args.mode, args.price_source, args.name, args.notes, args.force,
+            args.output_dir,
+        )
     return 0
 
 

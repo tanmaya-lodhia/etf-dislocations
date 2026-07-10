@@ -21,7 +21,10 @@ effects, two-way clustered standard errors), the mean-reversion
 analysis (per-ETF AR(1) half-lives by calm/stress regime with an
 interaction test for the persistence shift), and the robustness suite
 (placebo event windows, alternative dislocation/spread measures, Tier-2
-threshold sensitivity, event exclusion, winsorisation).
+threshold sensitivity, event exclusion, winsorisation). A live-data audit
+(`docs/live_data_audit.md`) validated public-mode ingestion against real
+endpoints and fixed two bugs a NAV-sparse real sample exposed; see
+`docs/etf_data_availability.csv` for per-ticker data-source status.
 
 ## Quickstart
 
@@ -38,10 +41,11 @@ The fixture run needs no data setup and writes the complete output set
 `robustness`).
 
 For real data: place sponsor NAV downloads in `data/raw/nav/<TICKER>.csv`
-(see `docs/data_notes.md`), then
+(see `docs/data_notes.md` — Stooq is currently blocked by an anti-bot
+challenge, so pass `--price-source yahoo`), then
 
 ```bash
-etf-dislocations ingest --mode public
+etf-dislocations ingest --mode public --price-source yahoo
 etf-dislocations run-all --mode public
 ```
 
@@ -53,3 +57,18 @@ the same inputs are byte-identical (enforced by an integration test).
 
 Fixture data is synthetic (see `data/fixtures/README.md`) — fixture-mode
 output is never an empirical result.
+
+**Freezing for the paper:** live sources (Yahoo, sponsor NAV downloads)
+change day to day, so any paper built directly against a live fetch is not
+reproducible even though the pipeline is. Once real data is validated, snap
+it to an immutable, dated file before writing anything that cites it:
+
+```bash
+etf-dislocations freeze --mode public --price-source yahoo --notes "..."
+```
+
+This writes `data/frozen/etf_panel_<date>.parquet` plus a sibling
+`.provenance.json` (source, retrieved date, ticker list, date range) and
+refuses to silently overwrite an existing snapshot. Frozen snapshots are
+tracked in git, unlike `data/raw/`, `data/processed/`, and `data/panel/`,
+which are regenerable caches.

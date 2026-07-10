@@ -1,21 +1,31 @@
-"""Daily NAV ingestion from manually downloaded sponsor files.
+"""Daily NAV ingestion, primarily from manually downloaded sponsor files,
+with an automated fallback for State Street/SPDR-sponsored tickers.
 
-There is no reliable free API for historical ETF NAV, so public mode expects
-one CSV per ticker at data/raw/nav/<TICKER>.csv, downloaded by hand from the
-sponsor's fund page (instructions in docs/data_notes.md). Header spellings
-vary by sponsor; accepted variants are configured in data_sources.yaml.
-Cleaned series are persisted to data/processed/nav/ in a canonical date,nav
-format, which is also the fixture format.
+For most sponsors there is no reliable free API for historical ETF NAV, so
+public mode expects one CSV per ticker at data/raw/nav/<TICKER>.csv,
+downloaded by hand from the sponsor's fund page (instructions in
+docs/data_notes.md). Header spellings vary by sponsor; accepted variants are
+configured in data_sources.yaml. Cleaned series are persisted to
+data/processed/nav/ in a canonical date,nav format, which is also the
+fixture format.
+
+State Street/SPDR is the one sponsor found to publish a documented, keyless
+daily NAV history export per fund (see docs/live_data_audit.md); for the
+tickers listed under spdr_navhist in data_sources.yaml, ingest_nav()
+downloads this automatically when no manual CSV is present. A manually
+placed CSV always takes priority, so this never silently overrides a
+user-supplied file.
 """
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
 import pandas as pd
 
-from ..config import NavConfig
+from ..config import NavConfig, SpdrNavConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +63,81 @@ def parse_nav_csv(raw: pd.DataFrame, ticker: str, nav_cfg: NavConfig) -> pd.Seri
     return out.set_index("date")["nav"]
 
 
+def fetch_spdr_navhist_xlsx(url: str) -> bytes:
+    """Download one NAV-history workbook from State Street's fund-data
+    export. A single documented, keyless GET per fund; only called in
+    public mode as an automated NAV fallback."""
+    import requests
+
+    resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    return resp.content
+
+
+def parse_spdr_navhist_xlsx(content: bytes, ticker: str) -> pd.Series:
+    """Parse a State Street "navhist" workbook into a date-indexed NAV
+    series.
+
+    The sheet has a 3-row header block (fund name, ticker, blank) before the
+    real Date/NAV/Shares Outstanding/Total Net Assets header, and a trailing
+    disclaimer footer with blank or text-only rows; both are dropped by
+    requiring a parseable positive NAV.
+    """
+    try:
+        raw = pd.read_excel(
+            io.BytesIO(content), sheet_name="navhist", skiprows=3
+        )
+    except (ValueError, KeyError) as exc:
+        raise ValueError(
+            f"{ticker}: SPDR navhist workbook missing expected 'navhist' "
+            f"sheet"
+        ) from exc
+
+    if not {"Date", "NAV"}.issubset(raw.columns):
+        raise ValueError(
+            f"{ticker}: SPDR navhist sheet missing Date/NAV columns "
+            f"(found {list(raw.columns)})"
+        )
+
+    out = pd.DataFrame(
+        {
+            "date": pd.to_datetime(raw["Date"], format="%d-%b-%Y", errors="coerce"),
+            "nav": pd.to_numeric(raw["NAV"], errors="coerce"),
+        }
+    )
+    out = out.dropna(subset=["date"])
+    n_before = len(out)
+    out = out.loc[out["nav"].gt(0)]
+    dropped = n_before - len(out)
+    if dropped:
+        logger.warning(
+            "%s: dropped %d SPDR navhist rows (missing or <= 0 NAV)",
+            ticker, dropped,
+        )
+    out = out.sort_values("date")
+    out = out.loc[~out["date"].duplicated(keep="last")]
+    if out.empty:
+        raise ValueError(f"{ticker}: no valid NAV rows in SPDR navhist workbook")
+    return out.set_index("date")["nav"]
+
+
 def ingest_nav(
     tickers: list[str],
     raw_nav_dir: Path,
     processed_dir: Path,
     nav_cfg: NavConfig,
     require_all: bool = False,
+    spdr_cfg: SpdrNavConfig | None = None,
+    spdr_fetch=fetch_spdr_navhist_xlsx,
 ) -> dict[str, pd.Series]:
-    """Parse manual NAV downloads and persist canonical date,nav CSVs.
+    """Parse NAV data and persist canonical date,nav CSVs.
 
-    Tickers without a raw file are skipped with a warning (or an error when
-    require_all is set), so a partial NAV sample is always visible in logs.
+    For each ticker: a manually placed data/raw/nav/<TICKER>.csv is used if
+    present; otherwise, if spdr_cfg is given and the ticker is listed there,
+    NAV is downloaded automatically from State Street's navhist export.
+    Tickers satisfied by neither path are skipped with a warning (or an
+    error when require_all is set), so a partial NAV sample is always
+    visible in logs.
     """
     out_dir = processed_dir / "nav"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -72,18 +146,28 @@ def ingest_nav(
     missing: list[str] = []
     for ticker in tickers:
         path = raw_nav_dir / f"{ticker}.csv"
-        if not path.is_file():
+        if path.is_file():
+            nav = parse_nav_csv(pd.read_csv(path), ticker, nav_cfg)
+            logger.info("%s: ingested %d NAV rows (manual CSV)", ticker, len(nav))
+        elif spdr_cfg is not None and ticker in spdr_cfg.tickers:
+            url = spdr_cfg.url_template.format(symbol=ticker.lower())
+            content = spdr_fetch(url)
+            nav = parse_spdr_navhist_xlsx(content, ticker)
+            logger.info(
+                "%s: ingested %d NAV rows (automated SPDR navhist)",
+                ticker, len(nav),
+            )
+        else:
             missing.append(ticker)
             continue
-        nav = parse_nav_csv(pd.read_csv(path), ticker, nav_cfg)
         nav.reset_index().to_csv(out_dir / f"{ticker}.csv", index=False)
         out[ticker] = nav
-        logger.info("%s: ingested %d NAV rows", ticker, len(nav))
 
     if missing:
         msg = (
-            f"No NAV file for {len(missing)} tickers: {missing} "
-            f"(expected <TICKER>.csv in {raw_nav_dir})"
+            f"No NAV source for {len(missing)} tickers: {missing} "
+            f"(expected <TICKER>.csv in {raw_nav_dir}, or a spdr_navhist "
+            f"config entry)"
         )
         if require_all:
             raise FileNotFoundError(msg)

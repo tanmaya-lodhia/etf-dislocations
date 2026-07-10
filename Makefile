@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test panel-fixture run-all-fixture fixtures clean
+.PHONY: install test panel-fixture run-all-fixture freeze-public fixtures clean
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -13,6 +13,9 @@ panel-fixture:
 
 run-all-fixture:
 	$(PYTHON) -m etf_dislocations.cli run-all --mode fixture
+
+freeze-public:
+	$(PYTHON) -m etf_dislocations.cli freeze --mode public --price-source yahoo
 
 fixtures:
 	$(PYTHON) scripts/make_fixtures.py

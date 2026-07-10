@@ -3,9 +3,11 @@ import pandas as pd
 import pytest
 
 from etf_dislocations.analysis.panel_regression import (
+    RegressionConfig,
     RegressionSpec,
     load_regression_config,
     prepare_regression_frame,
+    run_panel_regressions,
     run_specification,
 )
 
@@ -100,6 +102,66 @@ def test_prepare_adds_derived_columns():
     assert set(frame["fixed_income"].unique()) == {0.0, 1.0}
     assert (frame["fixed_income_x_stress"] == frame["fixed_income"]).all()
     assert frame.index.names == ["ticker", "date"]
+
+
+def test_zero_variance_feature_dropped_instead_of_crashing():
+    # Reproduces a real degenerate-sample failure found during the
+    # live-data audit: a feature that is constant in the complete-case
+    # sample (e.g. a stale-pricing flag that is always False for a
+    # domestic-only surviving sample) used to collide with the intercept
+    # and crash PanelOLS on rank deficiency. It must now be dropped with a
+    # warning, and the remaining coefficient still estimated correctly.
+    panel = _synthetic_panel()
+    panel["zero_var"] = 0.0
+    frame = prepare_regression_frame(panel)
+    spec = RegressionSpec("degenerate", ("x1", "x2", "zero_var"), False, False)
+
+    coefs, stats = run_specification(frame, spec, "y")
+    variables = set(coefs["variable"])
+    assert "zero_var" not in variables
+    assert {"x1", "x2", "const"} <= variables
+    assert coefs.set_index("variable").loc["x1", "coef"] == pytest.approx(2.0, abs=0.02)
+
+
+def test_all_features_constant_raises():
+    panel = _synthetic_panel()
+    panel["zero_var"] = 0.0
+    frame = prepare_regression_frame(panel)
+    spec = RegressionSpec("degenerate", ("zero_var",), False, False)
+    with pytest.raises(ValueError, match="all features are constant"):
+        run_specification(frame, spec, "y")
+
+
+def test_entity_effects_with_single_entity_raises_clearly():
+    # Reproduces the second real failure found during the live-data audit:
+    # a NAV-sparse real-data run where only one ticker survives the
+    # complete-case filter. Two-way FE is not estimable there (no
+    # cross-sectional heterogeneity to remove) and used to crash inside
+    # linearmodels with an opaque "No objects to concatenate" error.
+    panel = _synthetic_panel()
+    single = panel[panel["ticker"] == "T00"]
+    frame = prepare_regression_frame(single)
+    spec = RegressionSpec("fe_single", ("x1", "x2"), True, True)
+    with pytest.raises(ValueError, match="entity_effects requires at least 2 entities"):
+        run_specification(frame, spec, "y")
+
+
+def test_run_panel_regressions_skips_inestimable_spec():
+    panel = _synthetic_panel()
+    single = panel[panel["ticker"] == "T00"]
+    frame_source = single
+    cfg = RegressionConfig(
+        dependent="y",
+        cluster_entity=True,
+        cluster_time=False,
+        specifications=(
+            RegressionSpec("pooled_ok", ("x1", "x2"), False, False),
+            RegressionSpec("fe_broken", ("x1", "x2"), True, True),
+        ),
+    )
+    coefs, stats = run_panel_regressions(frame_source, cfg)
+    assert set(stats["spec"]) == {"pooled_ok"}
+    assert set(coefs["spec"]) == {"pooled_ok"}
 
 
 def test_missing_feature_column_raises():

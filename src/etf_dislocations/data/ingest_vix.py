@@ -14,8 +14,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..config import StooqConfig
-from .ingest_prices import Fetcher, fetch_stooq_csv
+from ..config import StooqConfig, YahooConfig
+from .ingest_prices import (
+    Fetcher,
+    fetch_stooq_csv,
+    fetch_yahoo_chart_json,
+    parse_yahoo_chart_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +65,31 @@ def ingest_vix(
     vix = parse_vix_csv(text)
     vix.reset_index().to_csv(processed_dir / "vix.csv", index=False)
     logger.info("VIX: ingested %d rows from Stooq", len(vix))
+    return vix
+
+
+def ingest_vix_yahoo(
+    yahoo: YahooConfig,
+    raw_dir: Path,
+    processed_dir: Path,
+    fetch: Fetcher = fetch_yahoo_chart_json,
+) -> pd.Series:
+    """Fetch, cache, and persist the VIX daily close series from Yahoo.
+
+    Documented fallback for --price-source yahoo; see ingest_prices_yahoo.
+    """
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    url = yahoo.url_template.format(symbol=yahoo.vix_symbol)
+    text = fetch(url)
+    stamp = date.today().isoformat()
+    (raw_dir / f"vix_yahoo_{stamp}.csv").write_text(text, encoding="utf-8")
+
+    prices = parse_yahoo_chart_json(text, "VIX")
+    vix = prices["close"].rename("vix")
+    vix.reset_index().to_csv(processed_dir / "vix.csv", index=False)
+    logger.info("VIX: ingested %d rows from Yahoo", len(vix))
     return vix
 
 

@@ -3,6 +3,16 @@
 # ticker per run, no scraping. NAV history has no reliable free API and is
 # downloaded manually from sponsor fund pages into data/raw/nav/<TICKER>.csv
 # (see docs/data_notes.md for per-sponsor instructions).
+#
+# STATUS (checked 2026-07-10, see docs/live_data_audit.md): Stooq's download
+# endpoint now serves a client-side JS proof-of-work anti-bot challenge to
+# every request (site-wide, not symbol-specific), so it currently returns no
+# usable data to a plain HTTP client. It is left configured as the default
+# because the parser fails loudly and clearly when this happens, and the
+# challenge may be lifted or scoped down in the future. The `yahoo` block
+# below is a documented, opt-in fallback (--price-source yahoo) - it does
+# NOT replace Stooq as the default, per the "no silent source substitution"
+# rule.
 
 stooq:
   url_template: "https://stooq.com/q/d/l/?s={symbol}&i=d"
@@ -25,6 +35,45 @@ stooq:
     TLT: tlt.us
     IEF: ief.us
     SHY: shy.us
+
+# Yahoo Finance's public chart JSON endpoint (the same one the `yfinance`
+# library wraps, one of the sources SPEC.md section 2.2 names as acceptable).
+# Confirmed reachable without a key for all 17 universe tickers plus ^VIX on
+# 2026-07-10 (see docs/live_data_audit.md). Opt-in only via
+# `etf-dislocations ingest --price-source yahoo`.
+yahoo:
+  url_template: "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=10y&interval=1d&events=div,splits"
+  vix_symbol: "^VIX"
+  price_symbols:
+    SPY: SPY
+    IVV: IVV
+    QQQ: QQQ
+    XLF: XLF
+    XLE: XLE
+    XLK: XLK
+    EFA: EFA
+    EEM: EEM
+    VWO: VWO
+    LQD: LQD
+    AGG: AGG
+    BND: BND
+    HYG: HYG
+    JNK: JNK
+    TLT: TLT
+    IEF: IEF
+    SHY: SHY
+
+# State Street/SPDR publishes a documented, keyless daily NAV history export
+# per fund at a stable URL (discovered via the fund page's own static HTML,
+# not reverse-engineered - see docs/live_data_audit.md). Confirmed working
+# 2026-07-10 for every SPDR-sponsored ticker in the universe. Used as an
+# automated NAV source ONLY for these tickers; a manually placed
+# data/raw/nav/<TICKER>.csv still takes priority if present. All other
+# tickers (iShares, Vanguard) remain manual-download-only - no equivalent
+# keyless endpoint was found for them this session (see the audit doc).
+spdr_navhist:
+  url_template: "https://www.ssga.com/us/en/individual/library-content/products/fund-data/etfs/us/navhist-us-en-{symbol}.xlsx"
+  tickers: [SPY, XLF, XLE, XLK, JNK]
 
 nav:
   # Accepted header spellings for manually downloaded NAV files; the first

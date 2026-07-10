@@ -42,8 +42,23 @@ class NavConfig:
 
 
 @dataclass(frozen=True)
+class YahooConfig:
+    url_template: str
+    vix_symbol: str
+    price_symbols: dict[str, str]
+
+
+@dataclass(frozen=True)
+class SpdrNavConfig:
+    url_template: str
+    tickers: frozenset[str]
+
+
+@dataclass(frozen=True)
 class DataSources:
     stooq: StooqConfig
+    yahoo: YahooConfig
+    spdr_navhist: SpdrNavConfig
     nav: NavConfig
     foreign_calendars: dict[str, str]
 
@@ -56,6 +71,8 @@ def load_data_sources(path: Path | None = None) -> DataSources:
         cfg = yaml.safe_load(f)
 
     stooq = cfg["stooq"]
+    yahoo = cfg["yahoo"]
+    spdr = cfg["spdr_navhist"]
     nav = cfg["nav"]
     return DataSources(
         stooq=StooqConfig(
@@ -64,6 +81,17 @@ def load_data_sources(path: Path | None = None) -> DataSources:
             price_symbols={
                 str(k).upper(): str(v) for k, v in stooq["price_symbols"].items()
             },
+        ),
+        yahoo=YahooConfig(
+            url_template=str(yahoo["url_template"]),
+            vix_symbol=str(yahoo["vix_symbol"]),
+            price_symbols={
+                str(k).upper(): str(v) for k, v in yahoo["price_symbols"].items()
+            },
+        ),
+        spdr_navhist=SpdrNavConfig(
+            url_template=str(spdr["url_template"]),
+            tickers=frozenset(str(t).upper() for t in spdr["tickers"]),
         ),
         nav=NavConfig(
             date_columns=tuple(nav["date_columns"]),
@@ -105,6 +133,7 @@ class Settings:
     raw_dir: Path
     processed_dir: Path
     panel_dir: Path
+    frozen_dir: Path
     liquidity: LiquiditySettings
     event_study: EventStudySettings
     mean_reversion: MeanReversionSettings
@@ -188,6 +217,7 @@ def load_settings(path: Path | None = None) -> Settings:
         raw_dir=_resolve(paths["raw"]),
         processed_dir=_resolve(paths["processed"]),
         panel_dir=_resolve(paths["panel"]),
+        frozen_dir=_resolve(paths["frozen"]),
         liquidity=LiquiditySettings(
             rolling_window=rolling_window,
             annualisation_days=annualisation_days,

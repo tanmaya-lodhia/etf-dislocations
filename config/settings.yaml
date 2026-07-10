@@ -5,6 +5,10 @@ paths:
   raw: data/raw
   processed: data/processed
   panel: data/panel
+  # Immutable, versioned snapshots for paper reproducibility (SPEC.md
+  # section 5, "freeze before writing" convention). Tracked in git, unlike
+  # raw/processed/panel which are regenerable caches.
+  frozen: data/frozen
 
 liquidity:
   # Rolling window (trading days) for realised volatility and Amihud smoothing.

@@ -5,7 +5,12 @@ the same inputs produce byte-identical CSVs and manifests. Offline.
 
 import json
 
+import pandas as pd
+import pytest
+
 from etf_dislocations.cli import main
+from etf_dislocations.config import load_settings
+from etf_dislocations.freeze import load_frozen_panel
 
 EXPECTED_OUTPUTS = {
     "event_windows.csv",
@@ -54,3 +59,32 @@ def test_run_all_is_reproducible(tmp_path):
         if name.endswith(".png"):
             continue  # image encoding is not part of the guarantee
         assert first[name].read_bytes() == second[name].read_bytes(), name
+
+
+def test_freeze_snapshots_a_built_panel(tmp_path):
+    settings = load_settings()
+    default_panel = settings.panel_dir / "etf_day_panel_fixture.csv"
+    if not default_panel.is_file():
+        assert main(["build-panel", "--mode", "fixture"]) == 0
+
+    out_dir = tmp_path / "frozen"
+    assert main([
+        "freeze", "--mode", "fixture", "--price-source", "fixture",
+        "--name", "test_snapshot", "--notes", "integration test",
+        "--output-dir", str(out_dir),
+    ]) == 0
+
+    panel, provenance = load_frozen_panel(out_dir / "test_snapshot.parquet")
+    original = pd.read_csv(default_panel, parse_dates=["date"])
+    assert len(panel) == len(original)
+    assert provenance["mode"] == "fixture"
+    assert provenance["price_source"] == "fixture"
+    assert provenance["notes"] == "integration test"
+    assert provenance["n_rows"] == len(original)
+
+    # A second freeze of the same name must refuse to overwrite silently.
+    with pytest.raises(FileExistsError, match="already exists"):
+        main([
+            "freeze", "--mode", "fixture", "--price-source", "fixture",
+            "--name", "test_snapshot", "--output-dir", str(out_dir),
+        ])
